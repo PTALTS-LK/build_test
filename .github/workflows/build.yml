@@ -182,11 +182,10 @@ jobs:
           java-version: '17'
 
       - name: sdk
-        working-directory: ${{ github.workspace }}
-        run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' \
-            'ndk;27.0.12077973' 'cmake;3.22.1' > /dev/null
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;36.0.0 ndk;27.0.12077973 cmake;3.22.1'
+          log-accepted-android-sdk-licenses: false
 
       - name: flutter
         uses: subosito/flutter-action@v2

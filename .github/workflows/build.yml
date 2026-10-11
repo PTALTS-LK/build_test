@@ -1,0 +1,236 @@
+# RCT builds
+
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: ref
+        type: string
+        default: main
+      target:
+        description: target
+        type: choice
+        options:
+          - all
+          - linux
+          - windows
+          - macos
+          - android
+        default: all
+      release:
+        description: release
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: 3.41.9
+
+jobs:
+  linux:
+    if: ${{ inputs.target == 'all' || inputs.target == 'linux' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - name: source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.RCT_SOURCE }}
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.RCT_TOKEN }}
+          persist-credentials: false
+          path: src
+
+      - name: deps
+        working-directory: ${{ github.workspace }}
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y --no-install-recommends clang cmake ninja-build \
+            pkg-config libgtk-3-dev liblzma-dev libayatana-appindicator3-dev
+
+      - name: flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: false
+
+      - name: build
+        env:
+          RCT_DL_DIRECT: '1'
+        run: |
+          flutter pub get
+          ./packaging/build_appimage.sh
+
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: src/build/RCT-*.AppImage
+          if-no-files-found: error
+
+  windows:
+    if: ${{ inputs.target == 'all' || inputs.target == 'windows' }}
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - name: source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.RCT_SOURCE }}
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.RCT_TOKEN }}
+          persist-credentials: false
+          path: src
+
+      - name: flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: false
+
+      - name: build
+        run: |
+          flutter pub get
+          flutter build windows --release
+
+      - name: pack
+        shell: pwsh
+        run: |
+          Compress-Archive -Path 'build/windows/x64/runner/Release/*' `
+            -DestinationPath 'build/RCT-windows-x64.zip' -Force
+
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: src/build/RCT-windows-x64.zip
+          if-no-files-found: error
+
+  macos:
+    if: ${{ inputs.target == 'all' || inputs.target == 'macos' }}
+    runs-on: macos-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - name: source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.RCT_SOURCE }}
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.RCT_TOKEN }}
+          persist-credentials: false
+          path: src
+
+      - name: flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: false
+
+      - name: build
+        run: |
+          flutter pub get
+          ./packaging/build_macos.sh release --dmg
+
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: src/build/RCT-*.dmg
+          if-no-files-found: error
+
+  android:
+    if: ${{ inputs.target == 'all' || inputs.target == 'android' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: src
+    steps:
+      - name: source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.RCT_SOURCE }}
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.RCT_TOKEN }}
+          persist-credentials: false
+          path: src
+
+      - name: jdk
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: sdk
+        working-directory: ${{ github.workspace }}
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0' \
+            'ndk;27.0.12077973' 'cmake;3.22.1' > /dev/null
+
+      - name: flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: false
+
+      - name: build
+        env:
+          FLUTTER_STORAGE_BASE_URL: https://storage.googleapis.com
+        run: |
+          flutter pub get
+          ./packaging/build_android.sh release
+
+      - name: pack
+        run: |
+          cd build/app/outputs/flutter-apk
+          for f in app-*-release.apk; do
+            mv "$f" "RCT-${f#app-}"
+          done
+          mv app-release.apk RCT-universal.apk
+
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: src/build/app/outputs/flutter-apk/RCT-*.apk
+          if-no-files-found: error
+
+  release:
+    if: ${{ inputs.release && success() }}
+    needs: [linux, windows, macos, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: build-${{ github.run_number }}
+        run: gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes "$TAG"

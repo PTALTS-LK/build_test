@@ -23,6 +23,10 @@ on:
         description: release
         type: boolean
         default: false
+      libusb:
+        description: libusb
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -44,7 +48,7 @@ jobs:
         working-directory: src
     steps:
       - name: source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ secrets.RCT_SOURCE }}
           ref: ${{ inputs.ref }}
@@ -74,7 +78,7 @@ jobs:
           ./packaging/build_appimage.sh
 
       - name: upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux
           path: src/build/RCT-*.AppImage
@@ -89,7 +93,7 @@ jobs:
         working-directory: src
     steps:
       - name: source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ secrets.RCT_SOURCE }}
           ref: ${{ inputs.ref }}
@@ -105,9 +109,11 @@ jobs:
           cache: false
 
       - name: build
+        env:
+          RCT_LIBUSB: ${{ inputs.libusb }}
         run: |
           flutter pub get
-          flutter build windows --release
+          ./packaging/build_windows.sh
 
       - name: pack
         shell: pwsh
@@ -116,7 +122,7 @@ jobs:
             -DestinationPath 'build/RCT-windows-x64.zip' -Force
 
       - name: upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows
           path: src/build/RCT-windows-x64.zip
@@ -131,7 +137,7 @@ jobs:
         working-directory: src
     steps:
       - name: source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ secrets.RCT_SOURCE }}
           ref: ${{ inputs.ref }}
@@ -157,7 +163,7 @@ jobs:
           ./packaging/build_macos.sh release --dmg
 
       - name: upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos
           path: src/build/RCT-*.dmg
@@ -172,7 +178,7 @@ jobs:
         working-directory: src
     steps:
       - name: source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ secrets.RCT_SOURCE }}
           ref: ${{ inputs.ref }}
@@ -181,13 +187,13 @@ jobs:
           path: src
 
       - name: jdk
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '17'
 
       - name: sdk
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: 'platforms;android-36 build-tools;36.0.0 ndk;27.0.12077973 cmake;3.22.1'
           log-accepted-android-sdk-licenses: false
@@ -215,7 +221,7 @@ jobs:
           mv app-release.apk RCT-universal.apk
 
       - name: upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: android
           path: src/build/app/outputs/flutter-apk/RCT-*.apk
@@ -228,7 +234,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true

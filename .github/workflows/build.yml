@@ -139,6 +139,11 @@ jobs:
           persist-credentials: false
           path: src
 
+      - name: tools
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: brew install automake libtool pkg-config > /dev/null
+
       - name: flutter
         uses: subosito/flutter-action@v2
         with:

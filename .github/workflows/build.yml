@@ -109,16 +109,27 @@ jobs:
           cache: false
 
       - name: build
+        # 显式用 bash：Windows runner 默认是 pwsh，跑 .sh 不会同步等完
+        # （详见开发备注：步骤显示成功但产物没生成）
+        shell: bash
         env:
           RCT_LIBUSB: ${{ inputs.libusb }}
         run: |
           flutter pub get
           ./packaging/build_windows.sh
+          test -d build/windows/x64/runner/Release
 
       - name: pack
         shell: pwsh
         run: |
-          Compress-Archive -Path 'build/windows/x64/runner/Release/*' `
+          $dir = 'build/windows/x64/runner/Release'
+          if (-not (Test-Path $dir)) {
+            Write-Host "缺少 $dir，实际产物："
+            Get-ChildItem -Recurse -Depth 3 build -ErrorAction SilentlyContinue |
+              Select-Object -ExpandProperty FullName
+            throw "$dir 不存在"
+          }
+          Compress-Archive -Path "$dir/*" `
             -DestinationPath 'build/RCT-windows-x64.zip' -Force
 
       - name: upload

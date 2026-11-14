@@ -27,6 +27,10 @@ on:
         description: libusb
         type: boolean
         default: true
+      prefix:
+        description: version prefix
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -36,7 +40,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  FLUTTER_VERSION: 3.41.9
+  # 与本地开发环境保持一致；升级 Flutter 时同时检查：
+  # - Android 的 Gradle / AGP / KGP / NDK（见 android/ 与下方 android job 的 sdk packages）
+  # - Linux 构建依赖（libgtk-3-dev 等，见 linux job 的 deps）
+  FLUTTER_VERSION: 3.50.0
 
 jobs:
   linux:
@@ -60,8 +67,11 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           sudo apt-get -qq update
+          # libx11-dev / libxi-dev：tray_manager 0.8+ 改基于 nativeapi，Linux 侧需要
+          #   GTK3 + X11 + Xi 的开发文件（libayatana-appindicator3-dev 已不再必需）。
+          # libgtk-layer-shell 不列在这里：HUD 用 dlopen 运行时加载，构建不需要头文件。
           sudo apt-get -qq install -y --no-install-recommends clang cmake ninja-build \
-            pkg-config libgtk-3-dev liblzma-dev libayatana-appindicator3-dev
+            pkg-config libgtk-3-dev liblzma-dev libx11-dev libxi-dev libusb-1.0-0
 
       - name: flutter
         uses: subosito/flutter-action@v2
@@ -73,6 +83,10 @@ jobs:
       - name: build
         env:
           RCT_DL_DIRECT: '1'
+          RCT_LIBUSB: ${{ inputs.libusb }}
+          # 版本前缀（如 IT261115）；留空则 gen_version.dart 用默认 custom。
+          # 最终体现在关于页的「构建版本」与构建日志里。
+          RCT_VERSION_PREFIX: ${{ inputs.prefix }}
         run: |
           flutter pub get
           ./packaging/build_appimage.sh
@@ -114,6 +128,7 @@ jobs:
         shell: bash
         env:
           RCT_LIBUSB: ${{ inputs.libusb }}
+          RCT_VERSION_PREFIX: ${{ inputs.prefix }}
         run: |
           flutter pub get
           ./packaging/build_windows.sh
@@ -169,6 +184,9 @@ jobs:
           cache: false
 
       - name: build
+        env:
+          RCT_LIBUSB: ${{ inputs.libusb }}
+          RCT_VERSION_PREFIX: ${{ inputs.prefix }}
         run: |
           flutter pub get
           ./packaging/build_macos.sh release --dmg
@@ -201,12 +219,15 @@ jobs:
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '17'
+          # AGP 9 / Gradle 9 要求 JDK 17+，本地用 21 验证过，CI 保持一致
+          java-version: '21'
 
       - name: sdk
         uses: android-actions/setup-android@v4
         with:
-          packages: 'platforms;android-36 build-tools;36.0.0 ndk;27.0.12077973 cmake;3.22.1'
+          # ndk 28.2.13676358 是 Flutter 3.50 的硬性要求（各插件都按它编译，
+          # 混用 27 会在 stripDebugDebugSymbols 阶段失败）
+          packages: 'platforms;android-36 build-tools;36.0.0 ndk;28.2.13676358 cmake;3.22.1'
           log-accepted-android-sdk-licenses: false
 
       - name: flutter
@@ -219,6 +240,7 @@ jobs:
       - name: build
         env:
           FLUTTER_STORAGE_BASE_URL: https://storage.googleapis.com
+          RCT_VERSION_PREFIX: ${{ inputs.prefix }}
         run: |
           flutter pub get
           ./packaging/build_android.sh release

@@ -237,6 +237,28 @@ jobs:
           channel: stable
           cache: false
 
+      # release 签名：keystore 以 base64 存进 Secrets，构建前还原成文件。
+      # 缺少 ANDROID_KEYSTORE_BASE64 时跳过 —— 产物会退回 debug 证书（不能上架、不能覆盖升级）。
+      - name: signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::warning::未配置 ANDROID_KEYSTORE_BASE64，release 包将使用 debug 证书"
+            exit 0
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > android/app/release.jks
+          cat > android/key.properties <<EOF
+          storeFile=app/release.jks
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+          echo "已生成 android/key.properties（alias=$KEY_ALIAS）"
+
       - name: build
         env:
           FLUTTER_STORAGE_BASE_URL: https://storage.googleapis.com
